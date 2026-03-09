@@ -323,7 +323,7 @@ const AddBlog = () => {
                 <option value="Lifestyle">Lifestyle</option>
                 <option value="Finance">Finance</option>
                 <option value="Politics">Politics</option>
-                <option value="Cricket">Sports</option>
+                <option value="Sports">Sports</option>
                 <option value="Geography">Geography</option>
                 <option value="Education">Education</option>
               </select>

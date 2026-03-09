@@ -4,15 +4,65 @@ import fetch from 'node-fetch';
 
 dotenv.config();
 
-// Check if API key is available
+// Check if Google Gemini key is available
 if (!process.env.GEMINI_API_KEY) {
-  console.error('❌ GEMINI_API_KEY is not set in environment variables');
+  console.log('ℹ️ GEMINI_API_KEY is not set, Gemini will be skipped if GROQ_API_KEY is available.');
 } else {
   console.log('✅ GEMINI_API_KEY is configured');
 }
 
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Check if Groq key is available
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+if (GROQ_API_KEY) {
+  console.log('✅ GROQ_API_KEY is configured (will be preferred for AI generation)');
+} else {
+  console.log('ℹ️ GROQ_API_KEY is not set, using Gemini or fallback templates.');
+}
+
+// Initialize Gemini AI (used only when GROQ_API_KEY is not set)
+const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
+
+// Helper: call Groq's OpenAI-compatible chat API
+const generateWithGroq = async (prompt) => {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY is not configured');
+  }
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      // Use a current Groq model; you can change this string to any
+      // supported model name from your Groq dashboard if needed.
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      max_tokens: 1100,
+      temperature: 0.8,
+      top_p: 0.9,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq API error (${response.status} ${response.statusText}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+
+  return {
+    content,
+    usage: data.usage || {},
+  };
+};
 
 // Function to fetch real-time cricket data from multiple APIs
 const fetchCricketData = async (title) => {
@@ -42,7 +92,7 @@ const fetchCricketData = async (title) => {
     try {
       // 1. ESPN Cricinfo API (Free, no API key required)
       console.log('📡 Fetching data from ESPN Cricinfo...');
-      const espnResponse = await fetch('https://site.api.espn.com/apis/site/v2/sports/cricket/scoreboard');
+      const espnResponse = await fetch('https://sports.core.api.espn.com/v2/sports/cricket/');
       if (espnResponse.ok) {
         const espnData = await espnResponse.json();
         if (espnData.events) {
@@ -254,45 +304,78 @@ const generateFallbackContent = (title, category, subtitle = '') => {
         <h2>Conclusion</h2>
         <p>${title} demonstrates the importance of geographical knowledge in understanding our world and making informed decisions about environmental and developmental issues.</p>
       `;
-      
+
+    case 'education':
+      return `
+        <h2>Introduction</h2>
+        <p>Education plays a defining role in shaping individuals, communities, and entire nations. <strong>${title}</strong>${subtitle ? ` — <em>${subtitle}</em>` : ''} explores a crucial idea within the broader education landscape and what it means for learners, teachers, and policymakers.</p>
+
+        <h2>The Context Behind ${title}</h2>
+        <p>Before diving into the details, it's important to understand why this topic matters today. Changing technology, evolving job markets, and new learning models are all transforming how we think about education.</p>
+
+        <h3>Key Themes</h3>
+        <ul>
+          <li><strong>Access & Equity:</strong> Who gets quality education, and who is left behind?</li>
+          <li><strong>Learning Outcomes:</strong> How do we measure what students truly learn and retain?</li>
+          <li><strong>Teaching Methods:</strong> From rote learning to experiential and competency-based approaches.</li>
+          <li><strong>Technology & Innovation:</strong> The role of digital tools, AI, and online platforms.</li>
+        </ul>
+
+        <h2>Deep Dive: ${title}</h2>
+        <p>${title} can be understood by looking at how it affects classrooms, institutions, and long-term career paths. Whether it is a policy idea, a teaching method, or a reform model, its impact shows up in the day-to-day learning experience.</p>
+
+        <h3>Impact on Students</h3>
+        <p>Students are at the center of any educational change. ${title} influences how they engage with concepts, how motivated they feel, and what skills they ultimately carry into the real world.</p>
+
+        <h3>Impact on Educators</h3>
+        <p>For teachers and academic institutions, ${title} can mean rethinking curriculum design, assessment patterns, and classroom practices. It often demands new training, support, and clear communication.</p>
+
+        <h2>Challenges and Opportunities</h2>
+        <p>No educational idea is perfect. ${title} brings its own set of challenges — from implementation gaps to resource constraints — but it also opens the door for innovation, collaboration, and student-centered learning.</p>
+
+        <h3>Looking Ahead</h3>
+        <p>As education systems evolve, ideas like ${title} will continue to be refined. The real question is how effectively we can align them with real-world needs, local contexts, and long-term learner growth.</p>
+
+        <h2>Conclusion</h2>
+        <p>${title} is more than just an academic phrase; it represents a shift in how we think about learning, opportunity, and the future of work. By engaging with it thoughtfully, educators, parents, and students can help shape an education system that is more inclusive, relevant, and future-ready.</p>
+      `;
+
     default:
-  return `
-    <h2>Introduction</h2>
-    <p>Welcome to our comprehensive guide on <strong>${title}</strong>. In today's rapidly evolving world, understanding ${category.toLowerCase()} concepts has become increasingly important for both personal and professional growth.</p>
-    
-    <h2>What is ${title}?</h2>
-    <p>${title} represents a fundamental aspect of ${category.toLowerCase()} that has evolved significantly over the years. It encompasses various elements that work together to create meaningful experiences and drive innovation in the field.</p>
-    
-    <h3>Key Components</h3>
-    <ul>
-      <li><strong>Core Principles:</strong> Understanding the fundamental concepts that drive ${title}</li>
-      <li><strong>Practical Applications:</strong> Real-world examples and use cases</li>
-      <li><strong>Best Practices:</strong> Proven strategies for success</li>
-      <li><strong>Future Trends:</strong> What's coming next in this space</li>
-    </ul>
-    
-    <h2>Why ${title} Matters</h2>
-    <p>The significance of ${title} cannot be overstated in today's ${category.toLowerCase()} landscape. It serves as a foundation for innovation and provides a framework for solving complex challenges.</p>
-    
-    <h3>Benefits and Advantages</h3>
-    <p>Implementing ${title} strategies can lead to numerous benefits, including improved efficiency, enhanced user experience, and competitive advantages in the market.</p>
-    
-    <h2>Getting Started</h2>
-    <p>To begin your journey with ${title}, start by understanding the basic concepts and gradually build your knowledge through practical application and continuous learning.</p>
-    
-    <h3>Next Steps</h3>
-    <ul>
-      <li>Research current trends in ${category.toLowerCase()}</li>
-      <li>Identify specific areas for improvement</li>
-      <li>Develop a learning plan</li>
-      <li>Start with small, manageable projects</li>
-    </ul>
-    
-    <h2>Conclusion</h2>
-    <p>${title} represents an exciting opportunity to explore and innovate within the ${category.toLowerCase()} domain. By understanding its principles and applying them thoughtfully, you can unlock new possibilities and drive meaningful change.</p>
-    
-    <p>Remember, success with ${title} comes from continuous learning, practical application, and staying updated with the latest developments in the field.</p>
-  `;
+      return `
+        <h2>Introduction</h2>
+        <p>Welcome to this deep-dive on <strong>${title}</strong>${subtitle ? ` — <em>${subtitle}</em>` : ''}. In today's rapidly evolving world, understanding key ideas in ${category.toLowerCase()} has become essential for both personal and professional growth.</p>
+
+        <h2>What is ${title}?</h2>
+        <p>${title} represents an important concept within the ${category.toLowerCase()} space. It brings together several moving parts — from core principles to real-world applications — that influence how people think, decide, and act.</p>
+
+        <h3>Key Components</h3>
+        <ul>
+          <li><strong>Core Principles:</strong> The foundational ideas that define ${title}</li>
+          <li><strong>Real-World Applications:</strong> Practical scenarios where this concept shows up</li>
+          <li><strong>Benefits & Risks:</strong> What can go right, and what can go wrong, if it is misunderstood</li>
+          <li><strong>Future Outlook:</strong> How ${title} might evolve over the next few years</li>
+        </ul>
+
+        <h2>Why ${title} Matters</h2>
+        <p>The impact of ${title} goes beyond theory. It shapes decisions, strategies, and outcomes in the broader ${category.toLowerCase()} ecosystem — from individuals and startups to large institutions.</p>
+
+        <h3>Practical Takeaways</h3>
+        <p>If you're exploring ${title} for the first time, the most important step is to connect it with specific problems, use cases, or opportunities in your own context.</p>
+
+        <h2>Getting Started</h2>
+        <p>Begin by breaking ${title} into smaller, understandable pieces. Read a mix of foundational material and recent discussions, then experiment with small, low-risk implementations or thought exercises.</p>
+
+        <h3>Suggested Next Steps</h3>
+        <ul>
+          <li>Identify one real-world example where ${title} is visible today</li>
+          <li>Map its benefits and limitations in that scenario</li>
+          <li>Note down 2–3 questions you still have about it</li>
+          <li>Use those questions to guide further reading or experimentation</li>
+        </ul>
+
+        <h2>Conclusion</h2>
+        <p>${title} is a powerful lens for understanding change within ${category.toLowerCase()}. By studying it with curiosity and clarity, you can make better decisions, spot new opportunities, and build a stronger perspective on the world around you.</p>
+      `;
   }
 };
 
@@ -302,9 +385,9 @@ export const generateBlogContent = async (title, category, subtitle = '') => {
     console.log('🤖 Starting Gemini AI content generation...');
     console.log('📝 Input:', { title, category, subtitle });
     
-    // Check if API key is available
-    if (!process.env.GEMINI_API_KEY) {
-      console.log('⚠️ No API key, using fallback content generation');
+    // Check if any AI key is available (Groq preferred, then Gemini)
+    if (!GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
+      console.log('⚠️ No AI API key configured (GROQ_API_KEY or GEMINI_API_KEY). Using fallback content generation.');
       return generateFallbackContent(title, category, subtitle);
     }
     
@@ -314,6 +397,67 @@ export const generateBlogContent = async (title, category, subtitle = '') => {
       realTimeData = await fetchCricketData(title);
     } else if (category.toLowerCase() === 'politics') {
       realTimeData = await fetchNewsData(title, category);
+    }
+
+    // Turn real-time data into a compact, model-friendly context string
+    let realTimeContext = '';
+
+    if (realTimeData?.hasCricketData && realTimeData.data) {
+      const { liveMatches = [], upcomingMatches = [], recentResults = [], news = [] } = realTimeData.data;
+
+      const formatMatch = (m) => {
+        try {
+          const name = m.name || m.shortName || m.header?.matchDescription || '';
+          const series = m.series?.name || m.league || '';
+          const venue = m.venue?.fullName || m.venue || '';
+          return [
+            name && `Match: ${name}`,
+            series && `Series/Tournament: ${series}`,
+            venue && `Venue: ${venue}`,
+          ].filter(Boolean).join(' | ');
+        } catch {
+          return '';
+        }
+      };
+
+      const liveSummary = liveMatches
+        .slice(0, 3)
+        .map((m, idx) => `${idx + 1}. ${formatMatch(m)}`)
+        .filter(Boolean)
+        .join('\n');
+
+      const upcomingSummary = upcomingMatches
+        .slice(0, 3)
+        .map((m, idx) => `${idx + 1}. ${formatMatch(m)}`)
+        .filter(Boolean)
+        .join('\n');
+
+      const recentSummary = recentResults
+        .slice(0, 3)
+        .map((m, idx) => `${idx + 1}. ${formatMatch(m)}`)
+        .filter(Boolean)
+        .join('\n');
+
+      const newsSummary = news
+        .slice(0, 3)
+        .map((n, idx) => `${idx + 1}. ${n.title || ''}${n.source?.name ? ` (${n.source.name})` : ''}`)
+        .filter(Boolean)
+        .join('\n');
+
+      realTimeContext = `
+REAL-TIME CRICKET CONTEXT (USE THIS DATA DIRECTLY IN THE BLOG):
+- Live matches (top ${Math.min(liveMatches.length, 3)}):
+${liveSummary || 'No live matches available'}
+
+- Upcoming matches (top ${Math.min(upcomingMatches.length, 3)}):
+${upcomingSummary || 'No upcoming matches available'}
+
+- Recent results (top ${Math.min(recentResults.length, 3)}):
+${recentSummary || 'No recent results available'}
+
+- Recent cricket headlines (top ${Math.min(news.length, 3)}):
+${newsSummary || 'No recent headlines available'}
+`;
     }
     
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -486,29 +630,29 @@ export const generateBlogContent = async (title, category, subtitle = '') => {
     console.log('📤 Sending prompt to Gemini AI...');
     console.log('🔍 Real-time data status:', realTimeData);
     
-    // Enhanced prompt with real-time data instructions
+    // Enhanced prompt with real-time data instructions and structured layout
     const enhancedPrompt = `${prompt}
     
-    IMPORTANT: You have access to real-time information through your training data. Please:
+    IMPORTANT STRUCTURE REQUIREMENTS:
+    - Use clear HTML headings and structure:
+      <h2>Introduction</h2>
+      <h2>Section 1: ...</h2>
+      <h3>Subsection</h3>
+      ...
+      <h2>Conclusion</h2>
+    - Keep paragraphs short (2–4 sentences) and scannable.
+    - Avoid repeating the title verbatim in every heading.
+    - Do NOT include any Markdown syntax, only HTML tags.
+    
+    IMPORTANT: You have access to real-time information via the provided context. Please:
     1. Include current, up-to-date information relevant to the topic
     2. Reference recent events, developments, or news if applicable
     3. Use your knowledge cutoff to provide the most recent information available
     4. If discussing specific matches, players, or events, include recent data and statistics
     5. Make the content feel current and relevant to today's context
     
-    ${realTimeData.hasCricketData ? `REAL-TIME CRICKET DATA DETECTED: 
-    LIVE MATCHES: ${realTimeData.liveMatchesCount || 0} ongoing matches
-    UPCOMING MATCHES: ${realTimeData.upcomingMatchesCount || 0} scheduled matches  
-    RECENT RESULTS: ${realTimeData.recentResultsCount || 0} completed matches
-    CRICKET NEWS: ${realTimeData.newsCount || 0} recent articles
-    
-    Use this live data to include:
-    - Current live match scores and ongoing tournament standings
-    - Upcoming match schedules and team lineups
-    - Recent match results and player performances
-    - Latest cricket news and developments
-    - Real-time statistics and rankings` : ''}
-    ${realTimeData.hasNewsData ? 'REAL-TIME POLITICS DATA DETECTED: Include current political developments, recent elections, policy changes, and up-to-date political news.' : ''}
+    ${realTimeContext || ''}
+    ${realTimeData.hasNewsData ? 'REAL-TIME POLITICS DATA DETECTED: Include current political developments, recent elections, policy changes, and up-to-date political news, explicitly referencing them in the analysis.' : ''}
     
     For cricket blogs specifically:
     - Include recent match results, player performances, or tournament standings
@@ -538,14 +682,51 @@ export const generateBlogContent = async (title, category, subtitle = '') => {
     console.log('🎯 Category:', category);
     console.log('📰 Title:', title);
 
-    const result = await model.generateContent(enhancedPrompt);
-    const response = await result.response;
-    const content = response.text();
-    
-    console.log('✅ Gemini AI content generated successfully');
+    let content = '';
+    let usage = {};
+
+    if (GROQ_API_KEY) {
+      console.log('⚙️ Using Groq API (llama-3.1-70b-versatile) for blog generation...');
+      const groqResult = await generateWithGroq(enhancedPrompt);
+      content = groqResult.content;
+      usage = groqResult.usage;
+    } else {
+      console.log('⚙️ Using Google Gemini (gemini-1.5-flash) for blog generation...');
+
+      // Use explicit generation config to control length and cost
+      const result = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent({
+        contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
+        generationConfig: {
+          maxOutputTokens: 1100,   // ~700–800 words, keeps cost under control
+          temperature: 0.8,
+          topP: 0.9,
+          topK: 40,
+        },
+      });
+
+      const response = await result.response;
+      content = response.text();
+      usage = response.usageMetadata || {};
+    }
+
+    console.log('✅ AI content generated successfully');
+    if (usage) {
+      console.log('📊 Tokens usage:', usage);
+    }
     console.log('📊 Content length:', content.length, 'characters');
     console.log('📄 Content preview:', content.substring(0, 200) + '...');
-    
+
+    // Safety: if model ignored HTML instructions and returned plain text, wrap in basic HTML
+    if (!content.includes('<h2') && !content.includes('<p>')) {
+      const escaped = content
+        .split('\n\n')
+        .map(p => p.trim())
+        .filter(Boolean)
+        .map(p => `<p>${p}</p>`)
+        .join('\n');
+      return `<h2>Introduction</h2>\n${escaped}`;
+    }
+
     return content;
   } catch (error) {
     console.error('❌ Gemini AI error:', error);
